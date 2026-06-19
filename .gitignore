@@ -1,0 +1,6 @@
+# La clé "anon" de config.js est publique par conception : pas besoin de la cacher.
+# Ne committe JAMAIS la clé service_role de Supabase.
+.DS_Store
+node_modules/
+*.log
+.vscode/
