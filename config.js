@@ -8,6 +8,6 @@
  *  qui protègent les données. Ne mets JAMAIS la clé "service_role" ici.
  */
 window.PECUNIA_CONFIG = {
-  url: "https://VOTRE-PROJET.supabase.co",
-  anonKey: "VOTRE_CLE_ANON_PUBLIC"
+  url: "https://tbnaoynkgwaqcbqxswia.supabase.co",
+  anonKey: "sb_publishable_h2jB0ELeeFwCkrcXINNiXQ_ONNPx_mu"
 };
