@@ -225,10 +225,10 @@ function adminAngles(){const ang=angleStats(videos);const arr=ANGLES.map(a=>ang[
    <div class="panel"><div class="panel-h"><h2>Top vidéos</h2><span class="hint">ce qui marche, à dupliquer</span></div><div class="panel-b tscroll"><table><thead><tr><th>Vidéo</th><th>Angle</th><th>Plateforme</th><th class="r">Vues</th></tr></thead><tbody>${lrows}</tbody></table></div></div>`;}
 
 function adminCreators(){let body;
-  if(!creators.length)body=`<div class="empty"><h3>Aucun créateur inscrit</h3><p>Les créateurs créent leur compte eux-mêmes depuis le lien de la plateforme, puis apparaissent ici pour activation.</p><div style="margin-top:16px"><button class="btn primary" data-action="invite-creator">Comment inviter un créateur</button></div></div>`;
+  if(!creators.length)body=`<div class="empty"><h3>Aucun créateur inscrit</h3><p>Ajoute toi-même un créateur (tu crées son compte), ou invite-le à s'inscrire depuis le lien de la plateforme.</p><div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn primary" data-action="add-creator">+ Ajouter un créateur</button><button class="btn" data-action="invite-creator">Comment inviter</button></div></div>`;
   else{const rows=creators.map(c=>{const s=creatorStats(c);return `<tr class="row"><td><div class="creator-cell"><div class="ava">${esc((c.name||'?').slice(0,2).toUpperCase())}</div><div><div>${esc(c.name)}</div><div class="h">${esc(c.handle||'—')}</div></div></div></td><td>${c.approved?'<span class="badge b-on">actif</span>':'<span class="badge b-off">en attente</span>'}</td><td class="num">${rateFor(c)} €/1k · plaf. ${capFor(c)} €</td><td class="r num">${s.count}</td><td class="r num">${eur(s.due)}</td><td class="r"><div class="rowbtns">${c.approved?'':`<button class="btn primary sm" data-action="approve" data-id="${c.id}">Activer</button>`}<button class="btn sm ghost" data-action="edit-creator" data-id="${c.id}">Barème</button></div></td></tr>`;}).join('');
     body=`<div class="tscroll"><table><thead><tr><th>Créateur</th><th>Statut</th><th>Barème</th><th class="r">Vidéos</th><th class="r">Solde dû</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;}
-  return `<div class="panel"><div class="panel-h"><h2>Créateurs</h2><span class="hint">active les nouveaux comptes et règle leur barème</span><div class="spacer"></div><button class="btn sm" data-action="invite-creator">Inviter</button></div><div class="panel-b">${body}</div></div>`;}
+  return `<div class="panel"><div class="panel-h"><h2>Créateurs</h2><span class="hint">active les nouveaux comptes et règle leur barème</span><div class="spacer"></div><button class="btn primary sm" data-action="add-creator">+ Ajouter</button><button class="btn sm" data-action="invite-creator">Inviter</button></div><div class="panel-b">${body}</div></div>`;}
 
 function adminPayments(){const list=creators.map(c=>({c,s:creatorStats(c)})).filter(x=>x.s.earned>0.001);const t=totals();const w=windowInfo();
   if(!list.length)return `<div class="panel"><div class="panel-b"><div class="empty"><h3>Rien à payer pour l'instant</h3><p>Dès qu'une déclaration est validée, le gain du mois apparaît ici.</p></div></div></div>`;
@@ -264,6 +264,15 @@ function openModal(html){const bg=document.createElement('div');bg.className='mo
   bg.addEventListener('mousedown',e=>{if(e.target===bg)closeModal();});document.addEventListener('keydown',escClose);const f=bg.querySelector('input,select,button');if(f)f.focus();}
 function escClose(e){if(e.key==='Escape')closeModal();}
 function closeModal(){const m=document.getElementById('modalbg');if(m)m.remove();document.removeEventListener('keydown',escClose);}
+
+function addCreatorModal(){
+  openModal(`<h2>Ajouter un créateur</h2><p class="msub">Tu crées directement son compte. Transmets-lui ensuite ses identifiants : il pourra se connecter et déclarer ses vues. Laisse le barème vide pour le défaut (${config.rpmRate} €/1k, plafond ${config.cap} €).</p>
+    <label class="field"><span>Nom</span><input class="input" id="ac_name" placeholder="ex. Camille R."></label>
+    <label class="field"><span>Pseudo / handle <span class="muted">(facultatif)</span></span><input class="input" id="ac_handle" placeholder="@…"></label>
+    <label class="field"><span>Email du créateur</span><input class="input" id="ac_email" type="email" autocomplete="off" placeholder="creator@email.com"></label>
+    <label class="field"><span>Mot de passe <span class="muted">(6 caractères min. — à lui transmettre)</span></span><input class="input" id="ac_pw" type="text" placeholder="ex. Pecunia2026"></label>
+    <div class="grid2"><label class="field"><span>RPM perso (€/1k)</span><input class="input num" id="ac_rate" type="number" step="0.1" placeholder="${config.rpmRate}"></label><label class="field"><span>Plafond perso (€)</span><input class="input num" id="ac_cap" type="number" step="1" placeholder="${config.cap}"></label></div>
+    <div class="modal-foot"><button class="btn ghost" data-action="close">Annuler</button><button class="btn primary" data-action="save-newcreator">Créer le compte</button></div>`);}
 
 function inviteModal(){const link=location.href.split('#')[0];
   openModal(`<h2>Inviter un créateur</h2><p class="msub">Pas de création manuelle : le créateur s'inscrit lui-même, tu l'actives ensuite.</p>
@@ -342,6 +351,26 @@ async function saveCreator(id){const c=creators.find(x=>x.id===id);if(!c)return;
   if(error)return toast('Erreur : '+error.message);closeModal();await loadAll();toast('Barème enregistré');renderAdmin();}
 async function approveCreator(id){const {error}=await sb.from('profiles').update({approved:true}).eq('id',id);if(error)return toast('Erreur : '+error.message);await loadAll();toast('Créateur activé');renderAdmin();}
 
+// Création manuelle d'un créateur par l'admin : un client Supabase éphémère (sans
+// persistance) inscrit le compte — ça ne touche pas la session admin en cours —
+// puis le client admin règle le profil (nom, barème) et l'active.
+async function createCreator(){
+  const name=val('ac_name'),handle=val('ac_handle'),email=val('ac_email'),pw=val('ac_pw'),rv=val('ac_rate'),cv=val('ac_cap');
+  if(!name)return toast('Indique le nom du créateur');
+  if(!email||!pw)return toast('Email et mot de passe requis');
+  if(pw.length<6)return toast('Mot de passe : 6 caractères minimum');
+  let tmp;
+  try{ tmp=window.supabase.createClient(cfg.url,cfg.anonKey,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'pecunia_tmp_signup'}}); }
+  catch(e){ return toast('Erreur client : '+e.message); }
+  const {data,error}=await tmp.auth.signUp({email,password:pw,options:{data:{name}}});
+  if(error)return toast('Erreur : '+error.message);
+  const newId=data&&data.user&&data.user.id;
+  try{await tmp.auth.signOut();}catch(_){}
+  if(!newId)return toast('Compte créé. Recharge la page pour le voir.');
+  const {error:e2}=await sb.from('profiles').update({name,handle:handle||null,rate:rv===''?null:Number(rv),cap:cv===''?null:Number(cv),approved:true}).eq('id',newId);
+  if(e2)return toast('Compte créé, mais barème non enregistré : '+e2.message);
+  closeModal();await loadAll();toast('Créateur créé et activé ✓');renderAdmin();}
+
 async function saveVideo(id){const url=val('v_url'),platform=document.getElementById('v_plat').value,title=val('v_title'),angle=document.getElementById('v_angle').value,note=val('v_note');
   if(!url)return toast('Colle le lien de la vidéo');if(!angle)return toast('Choisis l’angle de la vidéo');if(!note)return toast('Ajoute une mini-description');
   let error;
@@ -401,6 +430,8 @@ document.addEventListener('click',async e=>{
   if(a==='logout')return logout();
   if(a==='close')return closeModal();
   if(a==='invite-creator')return inviteModal();
+  if(a==='add-creator')return addCreatorModal();
+  if(a==='save-newcreator')return createCreator();
   if(a==='copy-link'){try{await navigator.clipboard.writeText(el.dataset.link);toast('Lien copié');}catch(_){toast(el.dataset.link);}return;}
   if(a==='approve')return approveCreator(id);
   if(a==='edit-creator')return creatorEditModal(creators.find(c=>c.id===id));
