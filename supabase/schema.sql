@@ -183,17 +183,48 @@ begin
         validated_at = now();
 end; $$;
 
--- L'admin solde un créateur : marque payés tous ses relevés validés non encore payés.
-create or replace function public.mark_creator_paid(p_creator uuid)
+-- L'admin solde un créateur : marque payés tous ses relevés validés non encore payés,
+-- avec une date de versement choisie (p_date, par défaut maintenant) pour le suivi compta.
+drop function if exists public.mark_creator_paid(uuid);
+create or replace function public.mark_creator_paid(p_creator uuid, p_date timestamptz default now())
 returns void language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then raise exception 'Réservé à l''admin'; end if;
-  update public.readings r set paid = true, paid_at = now()
+  update public.readings r set paid = true, paid_at = p_date
   from public.videos v
   where r.video_id = v.id
     and v.creator_id = p_creator
     and r.status = 'validated'
     and r.paid = false;
+end; $$;
+
+-- L'admin supprime un créateur : supprime son compte auth -> cascade profil/vidéos/relevés.
+create or replace function public.delete_creator(p_creator uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Réservé à l''admin'; end if;
+  delete from auth.users where id = p_creator;
+end; $$;
+
+-- Supprime une déclaration (relevé) d'une vidéo pour un mois.
+-- Admin : toujours. Créateur : seulement les siennes et pas encore validées.
+create or replace function public.delete_reading(p_video uuid, p_month text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_owner uuid; v_status text;
+begin
+  select creator_id into v_owner from public.videos where id = p_video;
+  if v_owner is null then raise exception 'Vidéo introuvable'; end if;
+  select status into v_status from public.readings where video_id = p_video and month = p_month;
+  if public.is_admin() then
+    delete from public.readings where video_id = p_video and month = p_month;
+  elsif v_owner = auth.uid() then
+    if coalesce(v_status,'declared') = 'validated' then
+      raise exception 'Déclaration déjà validée : demande à l''admin de la retirer';
+    end if;
+    delete from public.readings where video_id = p_video and month = p_month;
+  else
+    raise exception 'Action non autorisée';
+  end if;
 end; $$;
 
 -- ------------------------------------------------------------------ --
@@ -209,7 +240,9 @@ grant select                              on public.readings   to authenticated;
 grant execute on function public.is_admin()                              to authenticated;
 grant execute on function public.declare_views(uuid, text, integer)      to authenticated;
 grant execute on function public.validate_reading(uuid, text, integer)   to authenticated;
-grant execute on function public.mark_creator_paid(uuid)                 to authenticated;
+grant execute on function public.mark_creator_paid(uuid, timestamptz)    to authenticated;
+grant execute on function public.delete_creator(uuid)                    to authenticated;
+grant execute on function public.delete_reading(uuid, text)              to authenticated;
 
 -- =====================================================================
 --  APRÈS EXÉCUTION : crée ton compte admin (voir README), puis lance :

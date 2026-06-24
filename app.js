@@ -22,6 +22,7 @@ let config = null, creators = [], videos = [], session = null, adminTab = 'overv
 const MARK = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 27V6h7a6 6 0 0 1 0 12h-7"/></svg>`;
 const eur = n => (Number(n)||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2});
 const numfmt = n => (Number(n)||0).toLocaleString('fr-FR');
+const dfmt = d => (d && d!==true) ? new Date(d).toLocaleDateString('fr-FR') : '';
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const val = id => { const e=document.getElementById(id); return e?e.value.trim():''; };
 const app = () => document.getElementById('app');
@@ -59,7 +60,7 @@ async function loadAll(){
   const {data:reads} = await sb.from('readings').select('*');
   videos = (vids||[]).map(v=>({id:v.id,creatorId:v.creator_id,platform:v.platform,url:v.url,title:v.title,angle:v.angle,note:v.note,createdAt:v.created_at,readings:{},payments:{}}));
   const vmap={}; videos.forEach(v=>vmap[v.id]=v);
-  (reads||[]).forEach(r=>{const v=vmap[r.video_id];if(!v)return;v.readings[r.month]={declared:r.declared,validated:r.validated,status:r.status};if(r.paid)v.payments[r.month]=true;});
+  (reads||[]).forEach(r=>{const v=vmap[r.video_id];if(!v)return;v.readings[r.month]={declared:r.declared,validated:r.validated,status:r.status};if(r.paid)v.payments[r.month]=r.paid_at||true;});
   if(!selMonth) selMonth = nowMonth();
 }
 
@@ -86,6 +87,7 @@ function cycleStatus(v){const r=rdg(v,nowMonth());if(!r)return 'todo';return r.s
 function creatorStats(c){const vids=videos.filter(v=>v.creatorId===c.id);let earned=0,paid=0,due=0,views=0,todo=0,declared=0;
   for(const v of vids){earned+=vTotalPay(v,c);paid+=vPaid(v,c);due+=vDue(v,c);views+=vDisplayViews(v);const st=cycleStatus(v);if(st==='todo')todo++;if(st==='declared')declared++;}
   return {vids,count:vids.length,earned,paid,due,views,todo,declared};}
+function lastPaidDate(c){let best=null;videos.filter(v=>v.creatorId===c.id).forEach(v=>{Object.values(v.payments||{}).forEach(val=>{if(val&&val!==true){const d=new Date(val);if(!best||d>best)best=d;}});});return best;}
 function totals(){let earned=0,paid=0,due=0,views=0;for(const c of creators){const s=creatorStats(c);earned+=s.earned;paid+=s.paid;due+=s.due;views+=s.views;}
   const pend=videos.filter(v=>{const r=rdg(v,nowMonth());return r&&r.status==='declared';}).length;
   return {earned,paid,due,views,creators:creators.length,videos:videos.length,pend};}
@@ -209,7 +211,7 @@ function adminCycle(){const w=windowInfo();const hasYT=videos.some(v=>v.platform
     const st=!r?'<span class="badge b-todo">à déclarer</span>':r.status==='validated'?'<span class="badge b-validated">validé</span>':'<span class="badge b-declared">à valider</span>';
     const declared=r?(r.declared!=null?numfmt(r.declared):'—'):'—';const valid=r&&r.status==='validated'?numfmt(r.validated):'—';
     const inc=isValidated(v,selMonth)?eur(vIncrements(v,c)[selMonth]||0):(r?eur(monthIncPreview(r.declared,v,c,selMonth)):'—');
-    return `<tr class="row"><td><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(v.title||'Vidéo')} ${angleChip(v.angle)}</div><div class="h muted"><a href="${esc(v.url)}" target="_blank" rel="noopener">lien ↗</a> · ${esc(c.name||'—')}</div></td><td><span class="plat"><span class="dot" style="background:${p.color}"></span>${p.name}</span></td><td class="r num">${declared}</td><td class="r num">${valid}</td><td class="r num">${inc}${isValidated(v,selMonth)&&vCapped(v,c)?' <span class="badge b-cap">plafond</span>':''}</td><td class="r">${st}</td><td class="r"><button class="btn sm ${r&&r.status!=='validated'?'primary':'ghost'}" data-action="validate" data-id="${v.id}">${r&&r.status==='validated'?'Réviser':'Valider'}</button></td></tr>`;}).join('');
+    return `<tr class="row"><td><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(v.title||'Vidéo')} ${angleChip(v.angle)}</div><div class="h muted"><a href="${esc(v.url)}" target="_blank" rel="noopener">lien ↗</a> · ${esc(c.name||'—')}</div></td><td><span class="plat"><span class="dot" style="background:${p.color}"></span>${p.name}</span></td><td class="r num">${declared}</td><td class="r num">${valid}</td><td class="r num">${inc}${isValidated(v,selMonth)&&vCapped(v,c)?' <span class="badge b-cap">plafond</span>':''}</td><td class="r">${st}</td><td class="r"><div class="rowbtns"><button class="btn sm ${r&&r.status!=='validated'?'primary':'ghost'}" data-action="validate" data-id="${v.id}">${r&&r.status==='validated'?'Réviser':'Valider'}</button>${r?`<button class="btn sm ghost" data-action="del-reading" data-id="${v.id}" data-month="${selMonth}" style="color:#E5675C">Suppr.</button>`:''}</div></td></tr>`;}).join('');
   return head+`<div class="panel"><div class="panel-h"><h2>${monthLabel(selMonth)}</h2><span class="hint">déclaré par le créateur · validé par toi (montant ferme)</span></div><div class="panel-b tscroll"><table><thead><tr><th>Vidéo</th><th>Plateforme</th><th class="r">Déclaré</th><th class="r">Validé</th><th class="r">Gain du mois</th><th class="r">Statut</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;}
 
 function adminAngles(){const ang=angleStats(videos);const arr=ANGLES.map(a=>ang[a.code]);
@@ -226,14 +228,14 @@ function adminAngles(){const ang=angleStats(videos);const arr=ANGLES.map(a=>ang[
 
 function adminCreators(){let body;
   if(!creators.length)body=`<div class="empty"><h3>Aucun créateur inscrit</h3><p>Ajoute toi-même un créateur (tu crées son compte), ou invite-le à s'inscrire depuis le lien de la plateforme.</p><div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="btn primary" data-action="add-creator">+ Ajouter un créateur</button><button class="btn" data-action="invite-creator">Comment inviter</button></div></div>`;
-  else{const rows=creators.map(c=>{const s=creatorStats(c);return `<tr class="row"><td><div class="creator-cell"><div class="ava">${esc((c.name||'?').slice(0,2).toUpperCase())}</div><div><div>${esc(c.name)}</div><div class="h">${esc(c.handle||'—')}</div></div></div></td><td>${c.approved?'<span class="badge b-on">actif</span>':'<span class="badge b-off">en attente</span>'}</td><td class="num">${rateFor(c)} €/1k · plaf. ${capFor(c)} €</td><td class="r num">${s.count}</td><td class="r num">${eur(s.due)}</td><td class="r"><div class="rowbtns">${c.approved?'':`<button class="btn primary sm" data-action="approve" data-id="${c.id}">Activer</button>`}<button class="btn sm ghost" data-action="edit-creator" data-id="${c.id}">Barème</button></div></td></tr>`;}).join('');
+  else{const rows=creators.map(c=>{const s=creatorStats(c);return `<tr class="row"><td><div class="creator-cell"><div class="ava">${esc((c.name||'?').slice(0,2).toUpperCase())}</div><div><div>${esc(c.name)}</div><div class="h">${esc(c.handle||'—')}</div></div></div></td><td>${c.approved?'<span class="badge b-on">actif</span>':'<span class="badge b-off">en attente</span>'}</td><td class="num">${rateFor(c)} €/1k · plaf. ${capFor(c)} €</td><td class="r num">${s.count}</td><td class="r num">${eur(s.due)}</td><td class="r"><div class="rowbtns">${c.approved?'':`<button class="btn primary sm" data-action="approve" data-id="${c.id}">Activer</button>`}<button class="btn sm ghost" data-action="edit-creator" data-id="${c.id}">Barème</button><button class="btn sm ghost" data-action="del-creator" data-id="${c.id}" style="color:#E5675C">Suppr.</button></div></td></tr>`;}).join('');
     body=`<div class="tscroll"><table><thead><tr><th>Créateur</th><th>Statut</th><th>Barème</th><th class="r">Vidéos</th><th class="r">Solde dû</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;}
   return `<div class="panel"><div class="panel-h"><h2>Créateurs</h2><span class="hint">active les nouveaux comptes et règle leur barème</span><div class="spacer"></div><button class="btn primary sm" data-action="add-creator">+ Ajouter</button><button class="btn sm" data-action="invite-creator">Inviter</button></div><div class="panel-b">${body}</div></div>`;}
 
 function adminPayments(){const list=creators.map(c=>({c,s:creatorStats(c)})).filter(x=>x.s.earned>0.001);const t=totals();const w=windowInfo();
   if(!list.length)return `<div class="panel"><div class="panel-b"><div class="empty"><h3>Rien à payer pour l'instant</h3><p>Dès qu'une déclaration est validée, le gain du mois apparaît ici.</p></div></div></div>`;
-  const rows=list.map(({c,s})=>`<tr class="row"><td><div class="creator-cell"><div class="ava">${esc((c.name||'?').slice(0,2).toUpperCase())}</div><div><div>${esc(c.name)}</div><div class="h">${s.count} vidéo(s)</div></div></div></td><td class="r num">${eur(s.earned)}</td><td class="r num">${eur(s.paid)}</td><td class="r num" style="font-weight:600;color:${s.due>0.001?'var(--jade-2)':'var(--mist)'}">${eur(s.due)}</td><td class="r"><div class="rowbtns"><button class="btn sm" data-action="open-creator" data-id="${c.id}">Détail</button><button class="btn primary sm" data-action="pay-all" data-id="${c.id}" ${s.due>0.001?'':'disabled'}>Marquer payé</button></div></td></tr>`).join('');
-  return `<div class="banner closed">Paiement prévu le <b style="color:var(--paper)">${w.p}</b>. « Marquer payé » solde tous les gains validés non versés du créateur.</div><div class="kpis">${kpi('Total à payer',eur(t.due),'gains validés non versés',true)}${kpi('Déjà versé',eur(t.paid),'cumul')}</div><div class="panel"><div class="panel-h"><h2>Soldes à payer</h2></div><div class="panel-b tscroll"><table><thead><tr><th>Créateur</th><th class="r">Gains cumulés</th><th class="r">Payé</th><th class="r">Solde dû</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;}
+  const rows=list.map(({c,s})=>{const lp=lastPaidDate(c);return `<tr class="row"><td><div class="creator-cell"><div class="ava">${esc((c.name||'?').slice(0,2).toUpperCase())}</div><div><div>${esc(c.name)}</div><div class="h">${s.count} vidéo(s)</div></div></div></td><td class="r num">${eur(s.earned)}</td><td class="r num">${eur(s.paid)}</td><td class="r num" style="font-weight:600;color:${s.due>0.001?'var(--jade-2)':'var(--mist)'}">${eur(s.due)}</td><td class="r num" style="color:var(--mist)">${lp?dfmt(lp):'—'}</td><td class="r"><div class="rowbtns"><button class="btn sm" data-action="open-creator" data-id="${c.id}">Détail</button><button class="btn primary sm" data-action="pay-all" data-id="${c.id}" ${s.due>0.001?'':'disabled'}>Marquer payé</button></div></td></tr>`;}).join('');
+  return `<div class="banner closed">Paiement prévu le <b style="color:var(--paper)">${w.p}</b>. « Marquer payé » solde tous les gains validés non versés du créateur, à la date que tu choisis.</div><div class="kpis">${kpi('Total à payer',eur(t.due),'gains validés non versés',true)}${kpi('Déjà versé',eur(t.paid),'cumul')}</div><div class="panel"><div class="panel-h"><h2>Soldes à payer</h2></div><div class="panel-b tscroll"><table><thead><tr><th>Créateur</th><th class="r">Gains cumulés</th><th class="r">Payé</th><th class="r">Solde dû</th><th class="r">Dernier versement</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;}
 
 function adminSettings(){const ytReady=!!(config.ytKey&&config.ytKey.trim());
   return `<div class="panel"><div class="panel-h"><h2>Barème par défaut</h2></div><div class="panel-b" style="padding:18px"><div class="grid2"><label class="field"><span>Taux RPM (€ / 1000 vues)</span><input class="input num" id="set_rate" type="number" step="0.1" value="${config.rpmRate}"></label><label class="field"><span>Plafond par vidéo (€)</span><input class="input num" id="set_cap" type="number" step="1" value="${config.cap}"></label></div><p class="help">S'applique à tout créateur sans barème personnalisé.</p><button class="btn primary sm" data-action="save-settings">Enregistrer le barème</button></div></div>
@@ -256,7 +258,7 @@ function creatorVideos(c,s,w){
   const rows=s.vids.map(v=>{const p=PLATFORMS[v.platform]||PLATFORMS.autre;const st=cycleStatus(v);
     const stb=st==='validated'?'<span class="badge b-validated">validé</span>':st==='declared'?'<span class="badge b-declared">déclaré</span>':'<span class="badge b-todo">à déclarer</span>';
     const canDeclare=w.open&&st!=='validated';
-    return `<tr class="row"><td><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(v.title||'Vidéo')} ${angleChip(v.angle)}</div><div class="h muted"><a href="${esc(v.url)}" target="_blank" rel="noopener">${p.name} ↗</a></div></td><td class="r num">${numfmt(vDisplayViews(v))}</td><td class="r num">${eur(vTotalPay(v,c))}${vCapped(v,c)?' <span class="badge b-cap">plafond</span>':''}</td><td class="r num" style="font-weight:600;color:${vDue(v,c)>0.001?'var(--jade-2)':'var(--mist)'}">${eur(vDue(v,c))}</td><td class="r">${stb}</td><td class="r"><div class="rowbtns">${canDeclare?`<button class="btn sm primary" data-action="declare" data-id="${v.id}">${st==='declared'?'Modifier':'Déclarer'}</button>`:''}<button class="btn sm ghost" data-action="creator-vdetail" data-id="${v.id}">Détail</button></div></td></tr>`;}).join('');
+    return `<tr class="row"><td><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(v.title||'Vidéo')} ${angleChip(v.angle)}</div><div class="h muted"><a href="${esc(v.url)}" target="_blank" rel="noopener">${p.name} ↗</a></div></td><td class="r num">${numfmt(vDisplayViews(v))}</td><td class="r num">${eur(vTotalPay(v,c))}${vCapped(v,c)?' <span class="badge b-cap">plafond</span>':''}</td><td class="r num" style="font-weight:600;color:${vDue(v,c)>0.001?'var(--jade-2)':'var(--mist)'}">${eur(vDue(v,c))}</td><td class="r">${stb}</td><td class="r"><div class="rowbtns">${canDeclare?`<button class="btn sm primary" data-action="declare" data-id="${v.id}">${st==='declared'?'Modifier':'Déclarer'}</button>`:''}${st==='declared'?`<button class="btn sm ghost" data-action="del-reading" data-id="${v.id}" data-month="${nowMonth()}" style="color:#E5675C">Suppr.</button>`:''}<button class="btn sm ghost" data-action="creator-vdetail" data-id="${v.id}">Détail</button></div></td></tr>`;}).join('');
   return `<div class="tscroll"><table><thead><tr><th>Vidéo</th><th class="r">Vues</th><th class="r">Gains</th><th class="r">À recevoir</th><th class="r">Ce mois</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;}
 
 /* ----------------------------- modales ----------------------------- */
@@ -321,7 +323,7 @@ function validateModal(v){const c=creatorOf(v);const m=selMonth;const r=rdg(v,m)
   inp.addEventListener('input',upd);upd();}
 
 function creatorVDetail(v){const c=creatorOf(v);const inc=vIncrements(v,c);const ms=allMonths(v);
-  const rows=ms.length?ms.map(m=>{const r=rdg(v,m);const paid=v.payments&&v.payments[m];const stt=r.status==='validated'?(paid?'<span class="badge b-paid">Reçu</span>':'<span class="badge b-due">À recevoir</span>'):'<span class="badge b-declared">En validation</span>';return `<tr class="row"><td>${monthLabel(m)}</td><td class="r num">${numfmt(r.status==='validated'?r.validated:r.declared)}</td><td class="r num">${r.status==='validated'?eur(inc[m]||0):'—'}</td><td class="r">${stt}</td></tr>`;}).join(''):'<tr><td colspan="4" class="muted" style="text-align:center;padding:18px">Pas encore de déclaration.</td></tr>';
+  const rows=ms.length?ms.map(m=>{const r=rdg(v,m);const paid=v.payments&&v.payments[m];const pd=dfmt(paid);const stt=r.status==='validated'?(paid?`<span class="badge b-paid">Reçu${pd?' le '+pd:''}</span>`:'<span class="badge b-due">À recevoir</span>'):'<span class="badge b-declared">En validation</span>';const del=r.status!=='validated'?`<button class="btn sm ghost" data-action="del-reading" data-id="${v.id}" data-month="${m}" style="color:#E5675C">Suppr.</button>`:'';return `<tr class="row"><td>${monthLabel(m)}</td><td class="r num">${numfmt(r.status==='validated'?r.validated:r.declared)}</td><td class="r num">${r.status==='validated'?eur(inc[m]||0):'—'}</td><td class="r">${stt} ${del}</td></tr>`;}).join(''):'<tr><td colspan="4" class="muted" style="text-align:center;padding:18px">Pas encore de déclaration.</td></tr>';
   openModal(`<h2>${esc(v.title||'Vidéo')}</h2><p class="msub">${(PLATFORMS[v.platform]||PLATFORMS.autre).name} · ${rateFor(c)} €/1k · plafond ${capFor(c)} €</p>
     <div class="banner closed" style="margin:0 0 14px"><div>${angleChip(v.angle)}<span style="display:block;margin-top:7px;color:var(--paper)">${esc(v.note||'—')}</span></div></div>
     <div class="kpis" style="margin-bottom:16px">${kpi('À recevoir',eur(vDue(v,c)),'',true)}${kpi('Total gagné',eur(vTotalPay(v,c)),'')}</div>
@@ -330,10 +332,11 @@ function creatorVDetail(v){const c=creatorOf(v);const inc=vIncrements(v,c);const
 
 function creatorDetailAdmin(id){const c=creators.find(x=>x.id===id);if(!c)return;const s=creatorStats(c);
   const rows=s.vids.length?s.vids.map(v=>`<tr class="row"><td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(v.title||'Vidéo')} ${angleChip(v.angle)}</div><div class="h muted">${(PLATFORMS[v.platform]||PLATFORMS.autre).name}</div></td><td class="r num">${numfmt(vDisplayViews(v))}</td><td class="r num">${eur(vTotalPay(v,c))}</td><td class="r num">${eur(vPaid(v,c))}</td><td class="r num">${eur(vDue(v,c))}</td></tr>`).join(''):'<tr><td colspan="5" class="muted" style="text-align:center;padding:18px">Aucune vidéo</td></tr>';
-  openModal(`<h2>${esc(c.name)}</h2><p class="msub">${c.approved?'Actif':'En attente d\'activation'} · ${rateFor(c)} €/1k · plafond ${capFor(c)} €</p>
+  const lp=lastPaidDate(c);
+  openModal(`<h2>${esc(c.name)}</h2><p class="msub">${c.approved?'Actif':'En attente d\'activation'} · ${rateFor(c)} €/1k · plafond ${capFor(c)} €${lp?` · dernier versement le ${dfmt(lp)}`:''}</p>
     <div class="kpis" style="margin-bottom:16px">${kpi('Solde dû',eur(s.due),'',true)}${kpi('Payé',eur(s.paid),'')}</div>
     <div class="tscroll" style="border:1px solid var(--line);border-radius:10px"><table style="min-width:0"><thead><tr><th>Vidéo</th><th class="r">Vues</th><th class="r">Gains</th><th class="r">Payé</th><th class="r">Dû</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="modal-foot"><button class="btn ghost" data-action="close">Fermer</button><button class="btn primary" data-action="pay-all" data-id="${c.id}" ${s.due>0.001?'':'disabled'}>Marquer ${eur(s.due)} payé</button></div>`);}
+    <div class="modal-foot"><button class="btn ghost" data-action="del-creator" data-id="${c.id}" style="color:#E5675C;margin-right:auto">Supprimer</button><button class="btn ghost" data-action="close">Fermer</button><button class="btn primary" data-action="pay-all" data-id="${c.id}" ${s.due>0.001?'':'disabled'}>Marquer ${eur(s.due)} payé</button></div>`);}
 
 /* ===================================================================
    ACTIONS
@@ -387,10 +390,26 @@ async function confirmValidate(id){const views=parseInt(val('vl_views'),10);if(i
   const {error}=await sb.rpc('validate_reading',{p_video:id,p_month:selMonth,p_views:views});
   if(error)return toast('Erreur : '+error.message);closeModal();await loadAll();toast('Montant validé');renderAdminTab();}
 
-async function payAll(id){const c=creators.find(x=>x.id===id);if(!c)return;const s=creatorStats(c);if(s.due<=0.001)return;
-  if(!confirm(`Marquer ${eur(s.due)} comme payé à ${c.name} ?`))return;
-  const {error}=await sb.rpc('mark_creator_paid',{p_creator:id});if(error)return toast('Erreur : '+error.message);
-  closeModal();await loadAll();toast(`${eur(s.due)} marqué payé`);renderAdmin();}
+function payModal(id){const c=creators.find(x=>x.id===id);if(!c)return;const s=creatorStats(c);if(s.due<=0.001)return toast('Rien à payer pour ce créateur');
+  const today=new Date().toISOString().slice(0,10);
+  openModal(`<h2>Marquer payé · ${esc(c.name)}</h2><p class="msub">Solde tous les gains validés non encore versés. Indique la date du versement réel (pour ton suivi et ta compta).</p>
+    <div class="kpis" style="margin-bottom:14px">${kpi('Montant à verser',eur(s.due),'',true)}</div>
+    <label class="field"><span>Date du versement</span><input class="input" id="pay_date" type="date" value="${today}"></label>
+    <div class="modal-foot"><button class="btn ghost" data-action="close">Annuler</button><button class="btn primary" data-action="confirm-pay" data-id="${c.id}">Confirmer le paiement</button></div>`);}
+async function confirmPay(id){const c=creators.find(x=>x.id===id);if(!c)return;const s=creatorStats(c);if(s.due<=0.001)return;
+  const dstr=val('pay_date');const dateISO=dstr?new Date(dstr+'T12:00:00').toISOString():new Date().toISOString();
+  const {error}=await sb.rpc('mark_creator_paid',{p_creator:id,p_date:dateISO});if(error)return toast('Erreur : '+error.message);
+  closeModal();await loadAll();toast(`${eur(s.due)} marqué payé le ${dfmt(dateISO)}`);renderAdmin();}
+
+async function deleteCreator(id){const c=creators.find(x=>x.id===id);if(!c)return;
+  if(!confirm(`Supprimer définitivement ${c.name} ?\n\nSon compte, ses vidéos et tous ses relevés seront effacés. Cette action est irréversible.`))return;
+  const {error}=await sb.rpc('delete_creator',{p_creator:id});if(error)return toast('Erreur : '+error.message);
+  closeModal();await loadAll();toast('Créateur supprimé');renderAdmin();}
+
+async function deleteReading(id,month){const v=videos.find(x=>x.id===id);if(!v||!month)return;
+  if(!confirm(`Supprimer la déclaration de « ${v.title||'cette vidéo'} » pour ${monthLabel(month)} ?`))return;
+  const {error}=await sb.rpc('delete_reading',{p_video:id,p_month:month});if(error)return toast('Erreur : '+error.message);
+  closeModal();await loadAll();toast('Déclaration supprimée');render();}
 
 async function ytCheck(id){const v=videos.find(x=>x.id===id);if(!v)return;const key=(config.ytKey||'').trim();const yid=ytId(v.url);
   if(!key)return toast('Ajoute une clé API YouTube dans Réglages');if(!yid)return toast('Lien YouTube non reconnu');
@@ -446,7 +465,10 @@ document.addEventListener('click',async e=>{
   if(a==='yt-check')return ytCheck(id);
   if(a==='yt-pull')return ytPull();
   if(a==='creator-vdetail')return creatorVDetail(videos.find(v=>v.id===id));
-  if(a==='pay-all')return payAll(id);
+  if(a==='pay-all')return payModal(id);
+  if(a==='confirm-pay')return confirmPay(id);
+  if(a==='del-creator')return deleteCreator(id);
+  if(a==='del-reading')return deleteReading(id,el.dataset.month);
   if(a==='toggle-window')return toggleWindow();
   if(a==='copy-reminder')return copyReminder();
   if(a==='save-settings')return saveSettings();
